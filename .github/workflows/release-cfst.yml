@@ -1,0 +1,76 @@
+name: Release CFST
+
+on:
+  push:
+    tags:
+      - 'v*-cfst*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and release (e.g., v0.13.0-cfst)'
+        required: true
+        default: 'v0.13.0-cfst'
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Determine ref
+        id: ref
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ github.ref }}" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          rust_target: ${{ matrix.target }}
+
+      - name: Build
+        run: just build --release --no-default-features --features common,cfst --target=${{ matrix.target }}
+        env:
+          USE_CROSS: "true"
+
+      - name: Package
+        run: just target=${{ matrix.target }} pack
+        shell: bash
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: smartdns-${{ matrix.target }}-${{ steps.ref.outputs.tag }}
+          retention-days: 30
+          path: |
+            dist/*.tar.gz
+            dist/*sha256sum.txt
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2.3.2
+        with:
+          draft: false
+          prerelease: false
+          tag_name: ${{ steps.ref.outputs.tag }}
+          files: |
+            dist/*.tar.gz
+            dist/*sha256sum.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
