@@ -514,16 +514,29 @@ fn build_middleware(
         // cfst
         #[cfg(feature = "cfst")]
         {
-            if !cfg.cfst_domains.is_empty() && cfg.cfst.ip_file.is_some() {
+            if !cfg.cfst_domains.is_empty()
+                && (cfg.cfst.ip_file.is_some()
+                    || cfg.cfst_domains.iter().any(|d| d.ip_file.is_some()))
+            {
                 use crate::cfst::CfstManager;
                 use crate::dns_mw_cfst::CfstMiddleware;
 
                 let manager = CfstManager::new(cfg.cfst.clone(), cfg.cfst_domains.clone());
-                let manager_clone = manager.clone();
-                tokio::spawn(async move {
-                    manager_clone.refresh_all_once().await;
-                });
-                manager.clone().start();
+
+                // Only spawn an immediate refresh if preload is enabled
+                if cfg.cfst.preload() {
+                    let manager_clone = manager.clone();
+                    tokio::spawn(async move {
+                        manager_clone.refresh_all_once().await;
+                    });
+                }
+
+                // Start periodic refresh loop. The JoinHandle is intentionally not stored;
+                // the task lives for the lifetime of the process and will be cleaned up on
+                // shutdown. On config reload, a new manager and task are created while the
+                // old task will eventually fail when its Arc<CfstManager> is the last reference.
+                let _handle = manager.clone().start();
+
                 builder = builder.with(CfstMiddleware::new(
                     manager,
                     std::sync::Arc::new(cfg.cfst.clone()),

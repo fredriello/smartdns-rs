@@ -132,6 +132,18 @@ impl CfstManager {
             })
             .unwrap_or(443);
 
+        // Warn if unsupported modes are configured
+        if let Some(modes) = self.config.mode.as_ref() {
+            let has_unsupported = modes
+                .iter()
+                .any(|m| matches!(m, CfstMode::Httping | CfstMode::Download));
+            if has_unsupported {
+                warn!(
+                    "cfst: httping and download modes are not yet implemented, falling back to TCP"
+                );
+            }
+        }
+
         let result_count = entry
             .result_count
             .unwrap_or_else(|| self.config.result_count());
@@ -139,6 +151,7 @@ impl CfstManager {
         let ping_times = self.config.ping_times();
 
         // Test IPv4 candidates
+        // TODO: min_speed filtering not yet implemented for TCP-only mode
         let best_ipv4 = if !ipv4_candidates.is_empty() {
             test_candidates_v4(
                 &ipv4_candidates,

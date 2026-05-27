@@ -270,33 +270,69 @@ impl std::fmt::Display for ConfigItem {
             ConfigItem::IpSetProvider(_) => todo!(),
             ConfigItem::IpAlias(_) => todo!(),
             #[cfg(feature = "cfst")]
-            ConfigItem::CfstIpFile(_) => todo!(),
+            ConfigItem::CfstIpFile(v) => {
+                write!(f, "cfst-ip-file {}", v.display())?;
+            }
             #[cfg(feature = "cfst")]
-            ConfigItem::CfstUrl(_) => todo!(),
+            ConfigItem::CfstUrl(v) => {
+                write!(f, "cfst-url {}", v)?;
+            }
             #[cfg(feature = "cfst")]
-            ConfigItem::CfstMode(_) => todo!(),
+            ConfigItem::CfstMode(modes) => {
+                let parts: Vec<String> = modes
+                    .iter()
+                    .map(|m| match m {
+                        CfstMode::Tcp(p) => format!("tcp:{}", p),
+                        CfstMode::Httping => "httping".to_string(),
+                        CfstMode::Download => "download".to_string(),
+                    })
+                    .collect();
+                write!(f, "cfst-mode {}", parts.join(","))?;
+            }
             #[cfg(feature = "cfst")]
-            ConfigItem::CfstCandidateCount(_) => todo!(),
+            ConfigItem::CfstCandidateCount(v) => {
+                write!(f, "cfst-candidate-count {}", v)?;
+            }
             #[cfg(feature = "cfst")]
-            ConfigItem::CfstConcurrency(_) => todo!(),
+            ConfigItem::CfstConcurrency(v) => {
+                write!(f, "cfst-concurrency {}", v)?;
+            }
             #[cfg(feature = "cfst")]
-            ConfigItem::CfstPingTimes(_) => todo!(),
+            ConfigItem::CfstPingTimes(v) => {
+                write!(f, "cfst-ping-times {}", v)?;
+            }
             #[cfg(feature = "cfst")]
-            ConfigItem::CfstDownloadTestCount(_) => todo!(),
+            ConfigItem::CfstDownloadTestCount(v) => {
+                write!(f, "cfst-download-test-count {}", v)?;
+            }
             #[cfg(feature = "cfst")]
-            ConfigItem::CfstResultCount(_) => todo!(),
+            ConfigItem::CfstResultCount(v) => {
+                write!(f, "cfst-result-count {}", v)?;
+            }
             #[cfg(feature = "cfst")]
-            ConfigItem::CfstRefreshInterval(_) => todo!(),
+            ConfigItem::CfstRefreshInterval(v) => {
+                write!(f, "cfst-refresh-interval {}s", v.as_secs())?;
+            }
             #[cfg(feature = "cfst")]
-            ConfigItem::CfstTtl(_) => todo!(),
+            ConfigItem::CfstTtl(v) => {
+                write!(f, "cfst-ttl {}", v)?;
+            }
             #[cfg(feature = "cfst")]
-            ConfigItem::CfstMinSpeed(_) => todo!(),
+            ConfigItem::CfstMinSpeed(v) => {
+                write!(f, "cfst-min-speed {}", v)?;
+            }
             #[cfg(feature = "cfst")]
-            ConfigItem::CfstServeStale(_) => todo!(),
+            ConfigItem::CfstServeStale(v) => {
+                write!(f, "cfst-serve-stale {}", if *v { "yes" } else { "no" })?;
+            }
             #[cfg(feature = "cfst")]
-            ConfigItem::CfstPreload(_) => todo!(),
+            ConfigItem::CfstPreload(v) => {
+                write!(f, "cfst-preload {}", if *v { "yes" } else { "no" })?;
+            }
             #[cfg(feature = "cfst")]
-            ConfigItem::CfstDomain(_) => todo!(),
+            ConfigItem::CfstDomain(entry) => {
+                write!(f, "cfst-domain /{}/", entry.domain)?;
+            }
             ConfigItem::Dns64(_) => todo!(),
         }
         Ok(())
