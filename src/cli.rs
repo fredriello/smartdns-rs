@@ -134,6 +134,22 @@ pub enum Commands {
         #[arg(short = 'd', long)]
         direcory: Option<std::path::PathBuf>,
     },
+
+    /// Run CloudFlare Speed Test (CFST) manually.
+    #[cfg(feature = "cfst")]
+    Cfst {
+        /// Configuration file
+        #[arg(short = 'c', long)]
+        conf: Option<std::path::PathBuf>,
+
+        /// Only test a specific domain
+        #[arg(long)]
+        domain: Option<String>,
+
+        /// Print results as address rules for smartdns.conf
+        #[arg(long)]
+        print_address: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]

@@ -8,6 +8,8 @@ use std::str::FromStr;
 
 mod api;
 mod app;
+#[cfg(feature = "cfst")]
+mod cfst;
 mod cli;
 mod collections;
 mod config;
@@ -20,6 +22,8 @@ mod dns_mw_addr;
 mod dns_mw_audit;
 mod dns_mw_bogus;
 mod dns_mw_cache;
+#[cfg(feature = "cfst")]
+mod dns_mw_cfst;
 mod dns_mw_cname;
 mod dns_mw_dns64;
 mod dns_mw_dnsmasq;
@@ -185,6 +189,73 @@ impl Cli {
             }
             Commands::Test { direcory, conf } => {
                 RuntimeConfig::load(direcory, conf);
+            }
+            #[cfg(feature = "cfst")]
+            Commands::Cfst {
+                conf,
+                domain,
+                print_address,
+            } => {
+                hello_starting();
+                let cfg = RuntimeConfig::load(None, conf);
+
+                if cfg.cfst_domains.is_empty() {
+                    error!("No cfst-domain entries found in configuration");
+                    return;
+                }
+
+                let domains: Vec<_> = if let Some(ref d) = domain {
+                    cfg.cfst_domains
+                        .iter()
+                        .filter(|e| match &e.domain {
+                            crate::config::Domain::Name(n) => {
+                                let s = n.to_string();
+                                s.trim_end_matches('.') == d
+                            }
+                            _ => false,
+                        })
+                        .cloned()
+                        .collect()
+                } else {
+                    cfg.cfst_domains.clone()
+                };
+
+                if domains.is_empty() {
+                    error!("No matching cfst-domain entries found");
+                    return;
+                }
+
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .expect("Failed to create runtime");
+
+                rt.block_on(async {
+                    let manager = crate::cfst::CfstManager::new(cfg.cfst.clone(), domains);
+                    manager.refresh_all_once().await;
+
+                    let results = manager.all_results().await;
+                    for (name, result) in &results {
+                        let domain_str = name.to_string();
+                        let domain_str = domain_str.trim_end_matches('.');
+                        if print_address {
+                            for ip in &result.ipv4 {
+                                println!("address /{}/{}", domain_str, ip);
+                            }
+                            for ip in &result.ipv6 {
+                                println!("address /{}/{}", domain_str, ip);
+                            }
+                        } else {
+                            println!("Domain: {}", domain_str);
+                            for ip in &result.ipv4 {
+                                println!("  IPv4: {}", ip);
+                            }
+                            for ip in &result.ipv6 {
+                                println!("  IPv6: {}", ip);
+                            }
+                        }
+                    }
+                });
             }
             #[cfg(feature = "self-update")]
             Commands::Update { yes, version } => {
