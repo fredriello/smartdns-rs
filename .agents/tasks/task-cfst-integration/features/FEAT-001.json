@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "Add CFST feature flag, configuration types, config parser support, and store parsed cfst config in RuntimeConfig. This is the foundational layer: defines all cfst-* configuration directives, parses them from smartdns.conf, and makes them accessible from RuntimeConfig.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Step 1: Add 'cfst' feature to Cargo.toml [features] section. It should depend on 'http_client' (for download testing). Add tokio dependency features if needed (already has time, rt, signal, macros).",
     "Step 2: Create src/config/cfst.rs defining CfstConfig struct with all fields: ip_file (PathBuf), url (String), mode (Vec<CfstMode> enum with Tcp(u16), Httping, Download), candidate_count (usize, default 1024), concurrency (usize, default 128), ping_times (usize, default 4), download_test_count (usize, default 10), result_count (usize, default 4), refresh_interval (Duration, default 1h), ttl (u32, default 300), min_speed (Option<u64> bytes/sec), serve_stale (bool, default true), preload (bool, default false). Also define CfstDomainEntry struct with fields: domain (Domain), url (Option<String>), ip_file (Option<PathBuf>), result_count (Option<usize>). Add Default impls. Gate the file with #[cfg(feature = \"cfst\")].",
@@ -29,5 +29,5 @@
     "cargo fmt --check"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All cfst code properly gated with #[cfg(feature = \"cfst\")]. NomParser for u32 was not needed as u64 cast works fine via map(u64, |v| v as u32). The cfst-ttl and cfst-refresh-interval use custom parsers (preceded with tag_no_case + space1) instead of the generic config() helper since they need custom parsing logic for duration strings and u32 casts. All 7 tests pass, both cargo check --features cfst and cargo check succeed."
 }
