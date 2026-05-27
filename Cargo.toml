@@ -3,7 +3,7 @@ name = "smartdns"
 version = "0.13.0"
 authors = ["YISH <mokeyish@hotmail.com>"]
 edition = "2024"
-rust-version = "1.93.1"
+rust-version = "1.92.0"
 
 keywords = ["DNS", "BIND", "dig", "SmartDNS", "Dnsmasq"]
 categories = ["network-programming"]
@@ -89,6 +89,7 @@ swagger-ui-embed = [
   "dep:utoipa-swagger-ui"
 ]
 
+cfst = ["http_client"]
 
 http_client = [
   "ureq"

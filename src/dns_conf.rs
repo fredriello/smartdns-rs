@@ -60,6 +60,11 @@ pub struct RuntimeConfig {
     ignore_ip: Arc<IpSet>,
 
     ip_alias: Arc<IpMap<Arc<[IpAddr]>>>,
+
+    #[cfg(feature = "cfst")]
+    pub cfst: CfstConfig,
+    #[cfg(feature = "cfst")]
+    pub cfst_domains: Vec<CfstDomainEntry>,
 }
 
 impl RuntimeConfig {
@@ -141,6 +146,10 @@ impl RuntimeConfig {
             rule_groups: Default::default(),
             rule_group_stack: Default::default(),
             dirs: Default::default(),
+            #[cfg(feature = "cfst")]
+            cfst: Default::default(),
+            #[cfg(feature = "cfst")]
+            cfst_domains: Default::default(),
         }
     }
 }
@@ -669,6 +678,10 @@ pub struct RuntimeConfigBuilder {
     rule_group_stack: Vec<(String, RuleGroup)>,
     loaded_files: HashSet<PathBuf>,
     dirs: HashSet<PathBuf>,
+    #[cfg(feature = "cfst")]
+    cfst: CfstConfig,
+    #[cfg(feature = "cfst")]
+    cfst_domains: Vec<CfstDomainEntry>,
 }
 
 impl RuntimeConfigBuilder {
@@ -878,6 +891,10 @@ impl RuntimeConfigBuilder {
             ignore_ip,
             ip_alias,
             proxy_servers: Arc::new(proxy_servers),
+            #[cfg(feature = "cfst")]
+            cfst: self.cfst,
+            #[cfg(feature = "cfst")]
+            cfst_domains: self.cfst_domains,
         })
     }
 }
@@ -1074,6 +1091,34 @@ impl RuntimeConfigBuilder {
                     }
                     self.client_rules.push(client_rule)
                 }
+                #[cfg(feature = "cfst")]
+                CfstIpFile(v) => self.cfst.ip_file = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstUrl(v) => self.cfst.url = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstMode(v) => self.cfst.mode = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstCandidateCount(v) => self.cfst.candidate_count = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstConcurrency(v) => self.cfst.concurrency = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstPingTimes(v) => self.cfst.ping_times = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstDownloadTestCount(v) => self.cfst.download_test_count = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstResultCount(v) => self.cfst.result_count = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstRefreshInterval(v) => self.cfst.refresh_interval = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstTtl(v) => self.cfst.ttl = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstMinSpeed(v) => self.cfst.min_speed = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstServeStale(v) => self.cfst.serve_stale = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstPreload(v) => self.cfst.preload = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstDomain(v) => self.cfst_domains.push(v),
             },
             Ok((_, None)) => (),
             Err(err) => {
@@ -1994,5 +2039,65 @@ mod tests {
 
         assert_eq!(cfg.client_rules().len(), 1);
         assert_eq!(cfg.client_rules()[0].group, "office");
+    }
+
+    #[cfg(feature = "cfst")]
+    #[test]
+    fn test_cfst_config_parsing() {
+        use std::time::Duration;
+
+        let cfg = RuntimeConfig::builder()
+            .with("cfst-ip-file /etc/smartdns/cloudflare-ip.txt")
+            .with("cfst-url https://speed.cloudflare.com/__down?bytes=10000000")
+            .with("cfst-mode tcp:443,httping,download")
+            .with("cfst-candidate-count 2048")
+            .with("cfst-concurrency 64")
+            .with("cfst-ping-times 8")
+            .with("cfst-download-test-count 5")
+            .with("cfst-result-count 8")
+            .with("cfst-refresh-interval 2h30m")
+            .with("cfst-ttl 600")
+            .with("cfst-min-speed 5M")
+            .with("cfst-serve-stale no")
+            .with("cfst-preload yes")
+            .with("cfst-domain /cdn.example.com/ -url https://x.com/100m.bin -result-count 2")
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            cfg.cfst.ip_file,
+            Some(PathBuf::from("/etc/smartdns/cloudflare-ip.txt"))
+        );
+        assert_eq!(
+            cfg.cfst.url,
+            Some("https://speed.cloudflare.com/__down?bytes=10000000".to_string())
+        );
+        assert_eq!(
+            cfg.cfst.mode,
+            Some(vec![
+                CfstMode::Tcp(443),
+                CfstMode::Httping,
+                CfstMode::Download,
+            ])
+        );
+        assert_eq!(cfg.cfst.candidate_count, Some(2048));
+        assert_eq!(cfg.cfst.concurrency, Some(64));
+        assert_eq!(cfg.cfst.ping_times, Some(8));
+        assert_eq!(cfg.cfst.download_test_count, Some(5));
+        assert_eq!(cfg.cfst.result_count, Some(8));
+        assert_eq!(cfg.cfst.refresh_interval, Some(Duration::from_secs(9000)));
+        assert_eq!(cfg.cfst.ttl, Some(600));
+        assert_eq!(cfg.cfst.min_speed, Some(5 * 1024 * 1024));
+        assert_eq!(cfg.cfst.serve_stale, Some(false));
+        assert_eq!(cfg.cfst.preload, Some(true));
+
+        assert_eq!(cfg.cfst_domains.len(), 1);
+        let domain_entry = &cfg.cfst_domains[0];
+        assert_eq!(
+            domain_entry.domain,
+            Domain::Name("cdn.example.com".parse().unwrap())
+        );
+        assert_eq!(domain_entry.url, Some("https://x.com/100m.bin".to_string()));
+        assert_eq!(domain_entry.result_count, Some(2));
     }
 }

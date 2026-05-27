@@ -52,6 +52,11 @@ pub use rule_group::*;
 pub use server_opts::*;
 pub use speed_mode::*;
 
+#[cfg(feature = "cfst")]
+mod cfst;
+#[cfg(feature = "cfst")]
+pub use cfst::*;
+
 use self::parser::NomParser;
 
 pub type DomainSets = HashMap<String, HashSet<WildcardName>>;
@@ -233,6 +238,11 @@ pub struct Config {
     pub ip_alias: Vec<IpAlias>,
 
     pub client_rules: Vec<ClientRule>,
+
+    #[cfg(feature = "cfst")]
+    pub cfst: CfstConfig,
+    #[cfg(feature = "cfst")]
+    pub cfst_domains: Vec<CfstDomainEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

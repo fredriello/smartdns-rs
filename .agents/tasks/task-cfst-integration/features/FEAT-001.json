@@ -1,0 +1,33 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Add CFST feature flag, configuration types, config parser support, and store parsed cfst config in RuntimeConfig. This is the foundational layer: defines all cfst-* configuration directives, parses them from smartdns.conf, and makes them accessible from RuntimeConfig.",
+  "status": "in_progress",
+  "steps": [
+    "Step 1: Add 'cfst' feature to Cargo.toml [features] section. It should depend on 'http_client' (for download testing). Add tokio dependency features if needed (already has time, rt, signal, macros).",
+    "Step 2: Create src/config/cfst.rs defining CfstConfig struct with all fields: ip_file (PathBuf), url (String), mode (Vec<CfstMode> enum with Tcp(u16), Httping, Download), candidate_count (usize, default 1024), concurrency (usize, default 128), ping_times (usize, default 4), download_test_count (usize, default 10), result_count (usize, default 4), refresh_interval (Duration, default 1h), ttl (u32, default 300), min_speed (Option<u64> bytes/sec), serve_stale (bool, default true), preload (bool, default false). Also define CfstDomainEntry struct with fields: domain (Domain), url (Option<String>), ip_file (Option<PathBuf>), result_count (Option<usize>). Add Default impls. Gate the file with #[cfg(feature = \"cfst\")].",
+    "Step 3: In src/config/mod.rs, add 'mod cfst;' and 'pub use cfst::*;' gated with #[cfg(feature = \"cfst\")]. Add cfst fields to Config struct: '#[cfg(feature = \"cfst\")] pub cfst: Option<CfstConfig>' and '#[cfg(feature = \"cfst\")] pub cfst_domains: Vec<CfstDomainEntry>'.",
+    "Step 4: Create src/config/parser/cfst.rs implementing NomParser for CfstMode, parsing the mode string 'tcp:PORT,httping,download'. Implement parsing for cfst-domain lines (domain in slashes with optional -url, -ip-file, -result-count flags). Implement NomParser for duration strings like '1h', '30m', '2h30m'. Implement NomParser for speed strings like '5M' (megabytes/sec). Gate with #[cfg(feature = \"cfst\")].",
+    "Step 5: In src/config/parser/mod.rs, add 'mod cfst;' gated with #[cfg(feature = \"cfst\")]. Add ConfigItem variants for each cfst directive: CfstIpFile(PathBuf), CfstUrl(String), CfstMode(Vec<CfstMode>), CfstCandidateCount(usize), CfstConcurrency(usize), CfstPingTimes(usize), CfstDownloadTestCount(usize), CfstResultCount(usize), CfstRefreshInterval(Duration), CfstTtl(u32), CfstMinSpeed(u64), CfstServeStale(bool), CfstPreload(bool), CfstDomain(CfstDomainEntry). Gate variants with #[cfg(feature = \"cfst\")]. Add parsing entries in parse_line function within a new cfst-specific group gated by #[cfg(feature = \"cfst\")]. Also add Display stubs for ConfigItem.",
+    "Step 6: In src/dns_conf.rs RuntimeConfigBuilder::config() method, handle the new ConfigItem variants under #[cfg(feature = \"cfst\")] blocks. Initialize self.cfst (as Option<CfstConfig>) lazily and set each field. For CfstDomain, push to self.cfst_domains Vec. In RuntimeConfig struct, add '#[cfg(feature = \"cfst\")] pub cfst: Option<CfstConfig>' and '#[cfg(feature = \"cfst\")] pub cfst_domains: Vec<CfstDomainEntry>'. In the builder's build() method, transfer the fields.",
+    "Step 7: Add unit tests in src/config/parser/cfst.rs: test parsing cfst-mode string, test parsing cfst-domain with and without options, test parsing duration, test parsing speed. Add integration-style test in src/dns_conf.rs tests module: construct RuntimeConfig from config lines including cfst-* directives and verify the resulting CfstConfig fields are correct."
+  ],
+  "acceptance_criteria": [
+    "cargo check --features cfst compiles without errors",
+    "cargo check (without cfst feature) still compiles without errors - all cfst code is properly gated",
+    "cargo test --features cfst cfst passes all new cfst parser unit tests",
+    "Parsing 'cfst-ip-file /etc/smartdns/cloudflare-ip.txt' produces CfstConfig with correct ip_file",
+    "Parsing 'cfst-domain /cdn.example.com/ -url https://x.com/100m.bin -result-count 2' produces correct CfstDomainEntry",
+    "Parsing 'cfst-mode tcp:443,httping,download' produces correct Vec<CfstMode>",
+    "Parsing 'cfst-refresh-interval 1h' produces Duration of 3600s",
+    "Parsing 'cfst-min-speed 5M' produces 5*1024*1024 bytes/sec"
+  ],
+  "verification": [
+    "cargo check --features cfst",
+    "cargo check",
+    "cargo test --features cfst cfst",
+    "cargo fmt --check"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

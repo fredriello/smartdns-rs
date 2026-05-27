@@ -36,6 +36,9 @@ mod speed_mode;
 mod srv;
 mod svcb;
 
+#[cfg(feature = "cfst")]
+mod cfst;
+
 use super::*;
 
 pub(crate) trait NomParser: Sized {
@@ -155,6 +158,34 @@ pub enum ConfigItem {
     User(String),
     IpSetProvider(IpSetProvider),
     IpAlias(IpAlias),
+    #[cfg(feature = "cfst")]
+    CfstIpFile(PathBuf),
+    #[cfg(feature = "cfst")]
+    CfstUrl(String),
+    #[cfg(feature = "cfst")]
+    CfstMode(Vec<CfstMode>),
+    #[cfg(feature = "cfst")]
+    CfstCandidateCount(usize),
+    #[cfg(feature = "cfst")]
+    CfstConcurrency(usize),
+    #[cfg(feature = "cfst")]
+    CfstPingTimes(usize),
+    #[cfg(feature = "cfst")]
+    CfstDownloadTestCount(usize),
+    #[cfg(feature = "cfst")]
+    CfstResultCount(usize),
+    #[cfg(feature = "cfst")]
+    CfstRefreshInterval(std::time::Duration),
+    #[cfg(feature = "cfst")]
+    CfstTtl(u32),
+    #[cfg(feature = "cfst")]
+    CfstMinSpeed(u64),
+    #[cfg(feature = "cfst")]
+    CfstServeStale(bool),
+    #[cfg(feature = "cfst")]
+    CfstPreload(bool),
+    #[cfg(feature = "cfst")]
+    CfstDomain(CfstDomainEntry),
 }
 
 impl std::fmt::Display for ConfigItem {
@@ -238,6 +269,34 @@ impl std::fmt::Display for ConfigItem {
             ConfigItem::User(_) => todo!(),
             ConfigItem::IpSetProvider(_) => todo!(),
             ConfigItem::IpAlias(_) => todo!(),
+            #[cfg(feature = "cfst")]
+            ConfigItem::CfstIpFile(_) => todo!(),
+            #[cfg(feature = "cfst")]
+            ConfigItem::CfstUrl(_) => todo!(),
+            #[cfg(feature = "cfst")]
+            ConfigItem::CfstMode(_) => todo!(),
+            #[cfg(feature = "cfst")]
+            ConfigItem::CfstCandidateCount(_) => todo!(),
+            #[cfg(feature = "cfst")]
+            ConfigItem::CfstConcurrency(_) => todo!(),
+            #[cfg(feature = "cfst")]
+            ConfigItem::CfstPingTimes(_) => todo!(),
+            #[cfg(feature = "cfst")]
+            ConfigItem::CfstDownloadTestCount(_) => todo!(),
+            #[cfg(feature = "cfst")]
+            ConfigItem::CfstResultCount(_) => todo!(),
+            #[cfg(feature = "cfst")]
+            ConfigItem::CfstRefreshInterval(_) => todo!(),
+            #[cfg(feature = "cfst")]
+            ConfigItem::CfstTtl(_) => todo!(),
+            #[cfg(feature = "cfst")]
+            ConfigItem::CfstMinSpeed(_) => todo!(),
+            #[cfg(feature = "cfst")]
+            ConfigItem::CfstServeStale(_) => todo!(),
+            #[cfg(feature = "cfst")]
+            ConfigItem::CfstPreload(_) => todo!(),
+            #[cfg(feature = "cfst")]
+            ConfigItem::CfstDomain(_) => todo!(),
             ConfigItem::Dns64(_) => todo!(),
         }
         Ok(())
@@ -423,6 +482,51 @@ fn parse_line<'a>(input: &'a str) -> IResult<&'a str, ConfigLine<'a>> {
         map(NomParser::parse, ConfigItem::Server),
     ));
 
+    #[cfg(feature = "cfst")]
+    let group_cfst = alt((
+        map(config("cfst-ip-file"), ConfigItem::CfstIpFile),
+        map(config("cfst-url"), ConfigItem::CfstUrl),
+        map(config("cfst-mode"), ConfigItem::CfstMode),
+        map(
+            config("cfst-candidate-count"),
+            ConfigItem::CfstCandidateCount,
+        ),
+        map(config("cfst-concurrency"), ConfigItem::CfstConcurrency),
+        map(config("cfst-ping-times"), ConfigItem::CfstPingTimes),
+        map(
+            config("cfst-download-test-count"),
+            ConfigItem::CfstDownloadTestCount,
+        ),
+        map(config("cfst-result-count"), ConfigItem::CfstResultCount),
+        map(
+            preceded(
+                tag_no_case("cfst-refresh-interval"),
+                preceded(space1, cfst::parse_cfst_duration),
+            ),
+            ConfigItem::CfstRefreshInterval,
+        ),
+        map(
+            preceded(
+                tag_no_case("cfst-ttl"),
+                preceded(space1, map(u64, |v| v as u32)),
+            ),
+            ConfigItem::CfstTtl,
+        ),
+        map(
+            preceded(
+                tag_no_case("cfst-min-speed"),
+                preceded(space1, cfst::parse_cfst_speed),
+            ),
+            ConfigItem::CfstMinSpeed,
+        ),
+        map(config("cfst-serve-stale"), ConfigItem::CfstServeStale),
+        map(config("cfst-preload"), ConfigItem::CfstPreload),
+        map(config("cfst-domain"), ConfigItem::CfstDomain),
+    ));
+
+    #[cfg(feature = "cfst")]
+    let group = alt((group1, group2, group3, group4, group5, group_cfst));
+    #[cfg(not(feature = "cfst"))]
     let group = alt((group1, group2, group3, group4, group5));
 
     alt((
