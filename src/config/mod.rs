@@ -4,6 +4,7 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 
 use crate::{
@@ -233,6 +234,11 @@ pub struct Config {
     pub ip_alias: Vec<IpAlias>,
 
     pub client_rules: Vec<ClientRule>,
+
+    #[cfg(feature = "cfst")]
+    pub cfst: CfstGlobalConfig,
+    #[cfg(feature = "cfst")]
+    pub cfst_domains: Vec<CfstDomainRule>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -418,3 +424,42 @@ macro_rules! impl_from_str {
 }
 
 impl_from_str!(AddressRule, Domain, AddressRuleValue, BindAddr);
+
+// --- CFST config types ---
+
+#[cfg(feature = "cfst")]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum CfstMode {
+    #[default]
+    Tcp,
+    TcpHttping,
+    TcpHttpingDownload,
+}
+
+#[cfg(feature = "cfst")]
+#[derive(Clone, Debug, Default)]
+pub struct CfstGlobalConfig {
+    pub ip_files: Vec<PathBuf>,
+    pub ranges: Vec<ipnet::IpNet>,
+    pub url: Option<url::Url>,
+    pub mode: CfstMode,
+    pub candidate_count: Option<usize>,
+    pub concurrency: Option<usize>,
+    pub ping_times: Option<usize>,
+    pub download_test_count: Option<usize>,
+    pub result_count: Option<usize>,
+    pub refresh_interval: Option<Duration>,
+    pub ttl: Option<Duration>,
+    pub min_speed: Option<u64>,
+    pub serve_stale: Option<bool>,
+    pub preload: Option<bool>,
+}
+
+#[cfg(feature = "cfst")]
+#[derive(Clone, Debug)]
+pub struct CfstDomainRule {
+    pub domain: Domain,
+    pub ip_file: Option<PathBuf>,
+    pub url: Option<url::Url>,
+    pub result_count: Option<usize>,
+}

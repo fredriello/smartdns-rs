@@ -171,11 +171,30 @@ impl App {
     async fn update_middleware_handler(&self) {
         let cfg = self.cfg.read().await.clone();
         let mut cache = self.cache.write().await;
+
+        #[cfg(feature = "cfst")]
+        let cfst_manager = {
+            if cfg.cfst_domains().is_empty() {
+                None
+            } else {
+                let configs = cfg.build_cfst_domain_configs();
+                let manager = Arc::new(crate::cfst_daemon::CfstManager::new(configs));
+                if cfg.cfst_preload() {
+                    log::info!("cfst preloading optimized IPs...");
+                    manager.refresh_all_once().await;
+                }
+                manager.clone().spawn();
+                Some(manager)
+            }
+        };
+
         let middleware_handler = build_middleware(
             &cfg,
             &self.dns_handle,
             cfg.create_dns_client().await,
             &mut cache,
+            #[cfg(feature = "cfst")]
+            cfst_manager,
         );
 
         *self.mw_handler.write().await = middleware_handler;
@@ -473,6 +492,7 @@ fn build_middleware(
     dns_handle: &DnsHandle,
     dns_client: DnsClient,
     dns_cache: &mut Option<Arc<DnsCache>>,
+    #[cfg(feature = "cfst")] cfst_manager: Option<Arc<crate::cfst_daemon::CfstManager>>,
 ) -> Arc<DnsMiddlewareHandler> {
     use crate::dns_mw_addr::AddressMiddleware;
     use crate::dns_mw_audit::DnsAuditMiddleware;
@@ -510,6 +530,12 @@ fn build_middleware(
         builder = builder.with(DnsZoneMiddleware::new());
 
         builder = builder.with(AddressMiddleware);
+
+        // CFST dynamic address (after static address rules, before hosts/upstream)
+        #[cfg(feature = "cfst")]
+        if let Some(ref manager) = cfst_manager {
+            builder = builder.with(crate::dns_mw_cfst::CfstMiddleware::new(manager.clone()));
+        }
 
         if cfg.resolv_hostanme() {
             builder = builder.with(DnsHostsMiddleware::new());

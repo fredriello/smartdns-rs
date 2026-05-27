@@ -50,6 +50,13 @@ mod third_ext;
 mod updater;
 mod zone;
 
+#[cfg(feature = "cfst")]
+mod cfst;
+#[cfg(feature = "cfst")]
+mod cfst_daemon;
+#[cfg(feature = "cfst")]
+mod dns_mw_cfst;
+
 use error::Error;
 use infra::middleware;
 
@@ -185,6 +192,57 @@ impl Cli {
             }
             Commands::Test { direcory, conf } => {
                 RuntimeConfig::load(direcory, conf);
+            }
+            #[cfg(feature = "cfst")]
+            Commands::Cfst {
+                conf,
+                directory,
+                domain,
+                print_address,
+            } => {
+                let cfg = RuntimeConfig::load(directory, conf);
+                let domain_configs = cfg.build_cfst_domain_configs();
+                if domain_configs.is_empty() {
+                    log::warn!("no cfst-domain configured");
+                    return;
+                }
+
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    for dc in &domain_configs {
+                        if let Some(ref filter) = domain {
+                            if !dc.domain.contains(filter.as_str()) {
+                                continue;
+                            }
+                        }
+                        info!("cfst testing domain={}", dc.domain);
+                        match crate::cfst::run_cfst(dc.cfst.clone()).await {
+                            Ok(results) => {
+                                if print_address {
+                                    print!(
+                                        "{}",
+                                        crate::cfst::render_address_rules(&dc.domain, &results)
+                                    );
+                                } else {
+                                    for r in &results {
+                                        println!(
+                                            "{} latency={:?} speed={} colo={}",
+                                            r.ip,
+                                            r.avg_latency,
+                                            r.download_speed_mbps()
+                                                .map(|s| format!("{:.1}Mbps", s))
+                                                .unwrap_or_else(|| "-".to_string()),
+                                            r.colo.as_deref().unwrap_or("-"),
+                                        );
+                                    }
+                                }
+                            }
+                            Err(err) => {
+                                log::error!("cfst failed for {}: {}", dc.domain, err);
+                            }
+                        }
+                    }
+                });
             }
             #[cfg(feature = "self-update")]
             Commands::Update { yes, version } => {

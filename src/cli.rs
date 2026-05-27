@@ -134,6 +134,26 @@ pub enum Commands {
         #[arg(short = 'd', long)]
         direcory: Option<std::path::PathBuf>,
     },
+
+    /// Run CFST speed test manually (diagnostic tool)
+    #[cfg(feature = "cfst")]
+    Cfst {
+        /// Config file
+        #[arg(short = 'c', long)]
+        conf: Option<std::path::PathBuf>,
+
+        /// Configuration directory
+        #[arg(short = 'd', long)]
+        directory: Option<std::path::PathBuf>,
+
+        /// Test only a specific domain
+        #[arg(long)]
+        domain: Option<String>,
+
+        /// Print results as address rules
+        #[arg(long)]
+        print_address: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]

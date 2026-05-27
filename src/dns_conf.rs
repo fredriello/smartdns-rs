@@ -649,6 +649,86 @@ impl RuntimeConfig {
 
         Ok(Arc::new(builder.build()?))
     }
+
+    #[cfg(feature = "cfst")]
+    pub fn cfst_domains(&self) -> &[CfstDomainRule] {
+        &self.cfst_domains
+    }
+
+    #[cfg(feature = "cfst")]
+    pub fn cfst_preload(&self) -> bool {
+        self.cfst.preload.unwrap_or(false)
+    }
+
+    #[cfg(feature = "cfst")]
+    pub fn build_cfst_domain_configs(&self) -> Vec<crate::cfst_daemon::CfstDomainConfig> {
+        use crate::cfst::CfstConfig;
+        use crate::cfst_daemon::CfstDomainConfig;
+        use std::time::Duration;
+
+        let global = &self.cfst;
+
+        // Load IP ranges from files + inline ranges
+        let mut global_ranges = global.ranges.clone();
+        for ip_file in &global.ip_files {
+            if let Ok(content) = std::fs::read_to_string(ip_file) {
+                match crate::cfst::parse_ranges(content.lines()) {
+                    Ok(ranges) => global_ranges.extend(ranges),
+                    Err(err) => warn!("cfst ip-file {:?}: {}", ip_file, err),
+                }
+            } else {
+                warn!("cfst ip-file {:?} not found", ip_file);
+            }
+        }
+
+        let (httping, download) = match global.mode {
+            CfstMode::Tcp => (false, false),
+            CfstMode::TcpHttping => (true, false),
+            CfstMode::TcpHttpingDownload => (true, true),
+        };
+
+        self.cfst_domains
+            .iter()
+            .map(|rule| {
+                let mut ranges = global_ranges.clone();
+                if let Some(ref ip_file) = rule.ip_file {
+                    if let Ok(content) = std::fs::read_to_string(ip_file) {
+                        if let Ok(r) = crate::cfst::parse_ranges(content.lines()) {
+                            ranges = r;
+                        }
+                    }
+                }
+
+                let url = rule.url.clone().or_else(|| global.url.clone());
+
+                CfstDomainConfig {
+                    domain: rule.domain.to_string(),
+                    cfst: CfstConfig {
+                        ranges,
+                        candidate_count: global.candidate_count.unwrap_or(1024),
+                        concurrency: global.concurrency.unwrap_or(128),
+                        tcp_port: 443,
+                        ping_times: global.ping_times.unwrap_or(4),
+                        connect_timeout: Duration::from_secs(1),
+                        download_test_count: global.download_test_count.unwrap_or(10),
+                        url: url.map(|u| reqwest::Url::parse(u.as_str()).unwrap()),
+                        httping,
+                        download,
+                        download_timeout: Duration::from_secs(10),
+                        min_download_speed: global.min_speed.unwrap_or(0),
+                        result_count: rule.result_count.unwrap_or(
+                            global.result_count.unwrap_or(4),
+                        ),
+                    },
+                    refresh_interval: global
+                        .refresh_interval
+                        .unwrap_or(Duration::from_secs(3600)),
+                    ttl: global.ttl.unwrap_or(Duration::from_secs(300)),
+                    serve_stale: global.serve_stale.unwrap_or(true),
+                }
+            })
+            .collect()
+    }
 }
 
 impl std::ops::Deref for RuntimeConfig {
@@ -1074,6 +1154,34 @@ impl RuntimeConfigBuilder {
                     }
                     self.client_rules.push(client_rule)
                 }
+                #[cfg(feature = "cfst")]
+                CfstIpFile(v) => self.cfst.ip_files.push(self.resolve_filepath(v)),
+                #[cfg(feature = "cfst")]
+                CfstUrl(v) => self.cfst.url = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstMode(v) => self.cfst.mode = v,
+                #[cfg(feature = "cfst")]
+                CfstCandidateCount(v) => self.cfst.candidate_count = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstConcurrency(v) => self.cfst.concurrency = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstPingTimes(v) => self.cfst.ping_times = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstDownloadTestCount(v) => self.cfst.download_test_count = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstResultCount(v) => self.cfst.result_count = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstRefreshInterval(v) => self.cfst.refresh_interval = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstTtl(v) => self.cfst.ttl = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstMinSpeed(v) => self.cfst.min_speed = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstServeStale(v) => self.cfst.serve_stale = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstPreload(v) => self.cfst.preload = Some(v),
+                #[cfg(feature = "cfst")]
+                CfstDomain(v) => self.cfst_domains.push(v),
             },
             Ok((_, None)) => (),
             Err(err) => {
