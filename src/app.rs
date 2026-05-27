@@ -533,8 +533,10 @@ fn build_middleware(
 
                 // Start periodic refresh loop. The JoinHandle is intentionally not stored;
                 // the task lives for the lifetime of the process and will be cleaned up on
-                // shutdown. On config reload, a new manager and task are created while the
-                // old task will eventually fail when its Arc<CfstManager> is the last reference.
+                // shutdown. The background task holds an Arc<CfstManager> keeping it alive
+                // indefinitely. On config reload, new tasks are created; old tasks continue
+                // running until process shutdown. A future improvement could use a
+                // CancellationToken to stop orphaned tasks.
                 let _handle = manager.clone().start();
 
                 builder = builder.with(CfstMiddleware::new(

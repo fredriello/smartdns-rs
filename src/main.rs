@@ -235,7 +235,9 @@ impl Cli {
                     manager.refresh_all_once().await;
 
                     let results = manager.all_results().await;
-                    for (name, result) in &results {
+                    let mut sorted_results: Vec<_> = results.into_iter().collect();
+                    sorted_results.sort_by(|a, b| a.0.to_string().cmp(&b.0.to_string()));
+                    for (name, result) in &sorted_results {
                         let domain_str = name.to_string();
                         let domain_str = domain_str.trim_end_matches('.');
                         if print_address {

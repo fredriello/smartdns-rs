@@ -54,6 +54,11 @@ impl CfstManager {
     }
 
     /// Spawns a background task that periodically refreshes all domains.
+    ///
+    /// Note: if `refresh_interval` is configured shorter than the time a full
+    /// refresh takes, and preload is also enabled, both tasks may overlap and
+    /// write interleaved results. For the default 1-hour interval this is not
+    /// a concern in practice.
     pub fn start(self: Arc<Self>) -> JoinHandle<()> {
         let interval = self.config.refresh_interval();
         tokio::spawn(async move {

@@ -50,10 +50,8 @@ impl Middleware<DnsContext, DnsRequest, DnsResponse, DnsError> for CfstMiddlewar
         let results = match self.manager.get_results(&cache_name).await {
             Some(r) => r,
             None => {
-                // No results yet; if serve_stale is false, fall through
-                if !self.config.serve_stale() {
-                    return next.run(ctx, req).await;
-                }
+                // No cached results yet; fall through to upstream.
+                // serve_stale only applies when results exist but are marked stale.
                 return next.run(ctx, req).await;
             }
         };
