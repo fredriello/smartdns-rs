@@ -246,6 +246,17 @@ impl CfstManager {
     ) -> Vec<IpAddr> {
         let mut current_ips = candidates.to_vec();
 
+        // Build shared TLS config once for all stages that need it
+        let has_tls_stage = stages
+            .iter()
+            .any(|s| matches!(s, PipelineStage::Httping | PipelineStage::Download));
+        let tls_connector = if has_tls_stage {
+            let tls_config = build_tls_client_config();
+            Some(tokio_rustls::TlsConnector::from(Arc::new(tls_config)))
+        } else {
+            None
+        };
+
         for (i, stage) in stages.iter().enumerate() {
             if current_ips.is_empty() {
                 break;
@@ -269,6 +280,7 @@ impl CfstManager {
                                     &url_parts,
                                     concurrency,
                                     take_count,
+                                    tls_connector.as_ref().unwrap(),
                                 )
                                 .await
                             }
@@ -293,6 +305,7 @@ impl CfstManager {
                                     concurrency,
                                     take_count,
                                     min_speed,
+                                    tls_connector.as_ref().unwrap(),
                                 )
                                 .await
                             }
@@ -444,8 +457,14 @@ struct TestUrlParts {
 }
 
 /// Parse a URL string into its components for testing.
+/// Only HTTPS URLs are accepted since both httping and download stages
+/// require TLS connections.
 fn parse_test_url(url_str: &str) -> Option<TestUrlParts> {
     let parsed = Url::parse(url_str).ok()?;
+    // Only accept HTTPS scheme since we always use TLS
+    if parsed.scheme() != "https" {
+        return None;
+    }
     let hostname = parsed.host_str()?.to_string();
     let port = parsed.port_or_known_default().unwrap_or(443);
     let path = if parsed.path().is_empty() {
@@ -552,12 +571,10 @@ async fn test_candidates_httping(
     url_parts: &TestUrlParts,
     concurrency: usize,
     take_count: usize,
+    connector: &tokio_rustls::TlsConnector,
 ) -> Vec<IpAddr> {
     let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
     let mut handles = Vec::with_capacity(candidates.len());
-
-    let tls_config = build_tls_client_config();
-    let connector = tokio_rustls::TlsConnector::from(Arc::new(tls_config));
 
     for &ip in candidates {
         let sem = semaphore.clone();
@@ -595,12 +612,10 @@ async fn test_candidates_download(
     concurrency: usize,
     take_count: usize,
     min_speed: Option<u64>,
+    connector: &tokio_rustls::TlsConnector,
 ) -> Vec<IpAddr> {
     let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
     let mut handles = Vec::with_capacity(candidates.len());
-
-    let tls_config = build_tls_client_config();
-    let connector = tokio_rustls::TlsConnector::from(Arc::new(tls_config));
 
     for &ip in candidates {
         let sem = semaphore.clone();
@@ -694,6 +709,8 @@ async fn measure_httping(
 }
 
 /// Measure download throughput for a single IP (bytes/sec).
+/// Skips HTTP response headers and computes throughput from body data only.
+/// If the download timeout fires, throughput is computed from partial data.
 async fn measure_download_speed(
     ip: IpAddr,
     port: u16,
@@ -702,15 +719,16 @@ async fn measure_download_speed(
     connector: &tokio_rustls::TlsConnector,
 ) -> Option<u64> {
     use rustls::pki_types::ServerName;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     let download_timeout = Duration::from_secs(10);
 
-    let result = tokio::time::timeout(download_timeout, async {
-        // TCP connect
+    // TCP connect + TLS handshake + send request (outside the throughput timer)
+    let connect_timeout = Duration::from_secs(10);
+    let tls_stream = tokio::time::timeout(connect_timeout, async {
         let addr = SocketAddr::new(ip, port);
         let tcp_stream = TcpStream::connect(addr).await?;
 
-        // TLS handshake
         let server_name = ServerName::try_from(hostname.to_string())
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
         let mut tls_stream = connector.connect(server_name, tcp_stream).await?;
@@ -722,36 +740,77 @@ async fn measure_download_speed(
         );
         tls_stream.write_all(request.as_bytes()).await?;
 
-        // Stream the response, counting bytes
-        let start = Instant::now();
-        let mut total_bytes: u64 = 0;
-        let mut buf = [0u8; 8192];
+        Ok::<_, std::io::Error>(tls_stream)
+    })
+    .await;
 
+    let mut tls_stream = match tls_stream {
+        Ok(Ok(stream)) => stream,
+        _ => return None,
+    };
+
+    // Skip HTTP response headers (read until \r\n\r\n)
+    let mut header_buf = Vec::with_capacity(4096);
+    let mut single = [0u8; 1];
+    let headers_skipped = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            match tls_stream.read(&mut buf).await {
-                Ok(0) => break, // EOF
-                Ok(n) => {
-                    total_bytes += n as u64;
+            match tls_stream.read_exact(&mut single).await {
+                Ok(_) => {
+                    header_buf.push(single[0]);
+                    if header_buf.len() >= 4 && header_buf[header_buf.len() - 4..] == *b"\r\n\r\n" {
+                        return Ok::<(), std::io::Error>(());
+                    }
+                    // Safety: don't read more than 64KB of headers
+                    if header_buf.len() > 65536 {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "headers too large",
+                        ));
+                    }
                 }
-                Err(_) => break,
+                Err(e) => return Err(e),
             }
-        }
-
-        let elapsed = start.elapsed();
-        let elapsed_secs = elapsed.as_secs_f64();
-        if elapsed_secs > 0.0 && total_bytes > 0 {
-            Ok::<u64, std::io::Error>((total_bytes as f64 / elapsed_secs) as u64)
-        } else {
-            Ok(0)
         }
     })
     .await;
 
-    match result {
-        Ok(Ok(speed)) if speed > 0 => Some(speed),
-        // Timeout means we downloaded for the full duration - calculate from partial data
-        Err(_) => None,
-        _ => None,
+    match headers_skipped {
+        Ok(Ok(())) => {}
+        _ => return None,
+    }
+
+    // Now measure body throughput with shared counter for timeout case
+    let total_bytes = Arc::new(AtomicU64::new(0));
+    let total_bytes_clone = total_bytes.clone();
+    let start = Instant::now();
+
+    let read_result = tokio::time::timeout(download_timeout, async move {
+        let mut buf = [0u8; 8192];
+        loop {
+            match tls_stream.read(&mut buf).await {
+                Ok(0) => break, // EOF
+                Ok(n) => {
+                    total_bytes_clone.fetch_add(n as u64, Ordering::Relaxed);
+                }
+                Err(_) => break,
+            }
+        }
+    })
+    .await;
+
+    // Compute throughput whether download completed or timed out
+    let bytes = total_bytes.load(Ordering::Relaxed);
+    let elapsed_secs = start.elapsed().as_secs_f64();
+
+    // Both Ok (completed) and Err (timeout with partial data) are valid
+    match read_result {
+        Ok(()) | Err(_) => {
+            if elapsed_secs > 0.0 && bytes > 0 {
+                Some((bytes as f64 / elapsed_secs) as u64)
+            } else {
+                None
+            }
+        }
     }
 }
 
@@ -857,10 +916,8 @@ mod tests {
 
     #[test]
     fn test_parse_test_url_http() {
-        let parts = parse_test_url("http://example.com/path").unwrap();
-        assert_eq!(parts.hostname, "example.com");
-        assert_eq!(parts.port, 80);
-        assert_eq!(parts.path, "/path");
+        // http:// URLs should be rejected since we always use TLS
+        assert!(parse_test_url("http://example.com/path").is_none());
     }
 
     #[test]
