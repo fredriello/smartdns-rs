@@ -514,35 +514,58 @@ fn build_middleware(
         // cfst
         #[cfg(feature = "cfst")]
         {
-            if !cfg.cfst_domains.is_empty()
-                && (cfg.cfst.ip_file.is_some()
-                    || cfg.cfst_domains.iter().any(|d| d.ip_file.is_some()))
-            {
-                use crate::cfst::CfstManager;
-                use crate::dns_mw_cfst::CfstMiddleware;
+            if !cfg.cfst_domains.is_empty() {
+                let has_ip_file = cfg.cfst.ip_file.is_some()
+                    || cfg.cfst_domains.iter().any(|d| d.ip_file.is_some());
 
-                let manager = CfstManager::new(cfg.cfst.clone(), cfg.cfst_domains.clone());
+                if !has_ip_file {
+                    log::warn!(
+                        "cfst: cfst-domain configured but no cfst-ip-file specified, CFST will not start. Add 'cfst-ip-file /path/to/ips.txt' to your config."
+                    );
+                } else {
+                    // Warn if httping/download modes configured without URL
+                    if cfg.cfst.url.is_none() {
+                        if let Some(modes) = cfg.cfst.mode.as_ref() {
+                            use crate::config::CfstMode;
+                            let needs_url = modes
+                                .iter()
+                                .any(|m| matches!(m, CfstMode::Httping | CfstMode::Download));
+                            if needs_url {
+                                log::warn!(
+                                    "cfst: cfst-mode includes httping/download but no cfst-url configured, only TCP latency test will be used"
+                                );
+                            }
+                        }
+                    }
 
-                // Only spawn an immediate refresh if preload is enabled
-                if cfg.cfst.preload() {
-                    let manager_clone = manager.clone();
-                    tokio::spawn(async move {
-                        manager_clone.refresh_all_once().await;
-                    });
+                    use crate::cfst::CfstManager;
+                    use crate::dns_mw_cfst::CfstMiddleware;
+
+                    log::info!("cfst: starting with {} domain(s)", cfg.cfst_domains.len());
+
+                    let manager = CfstManager::new(cfg.cfst.clone(), cfg.cfst_domains.clone());
+
+                    // Only spawn an immediate refresh if preload is enabled
+                    if cfg.cfst.preload() {
+                        let manager_clone = manager.clone();
+                        tokio::spawn(async move {
+                            manager_clone.refresh_all_once().await;
+                        });
+                    }
+
+                    // Start periodic refresh loop. The JoinHandle is intentionally not stored;
+                    // the task lives for the lifetime of the process and will be cleaned up on
+                    // shutdown. The background task holds an Arc<CfstManager> keeping it alive
+                    // indefinitely. On config reload, new tasks are created; old tasks continue
+                    // running until process shutdown. A future improvement could use a
+                    // CancellationToken to stop orphaned tasks.
+                    let _handle = manager.clone().start();
+
+                    builder = builder.with(CfstMiddleware::new(
+                        manager,
+                        std::sync::Arc::new(cfg.cfst.clone()),
+                    ));
                 }
-
-                // Start periodic refresh loop. The JoinHandle is intentionally not stored;
-                // the task lives for the lifetime of the process and will be cleaned up on
-                // shutdown. The background task holds an Arc<CfstManager> keeping it alive
-                // indefinitely. On config reload, new tasks are created; old tasks continue
-                // running until process shutdown. A future improvement could use a
-                // CancellationToken to stop orphaned tasks.
-                let _handle = manager.clone().start();
-
-                builder = builder.with(CfstMiddleware::new(
-                    manager,
-                    std::sync::Arc::new(cfg.cfst.clone()),
-                ));
             }
         }
 
